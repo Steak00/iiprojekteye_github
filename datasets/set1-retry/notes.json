@@ -1,0 +1,37 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "F1"
+    },
+    {
+      "id": 1,
+      "name": "K1"
+    },
+    {
+      "id": 2,
+      "name": "Q"
+    },
+    {
+      "id": 3,
+      "name": "Q2"
+    },
+    {
+      "id": 4,
+      "name": "Q3"
+    },
+    {
+      "id": 5,
+      "name": "T1"
+    },
+    {
+      "id": 6,
+      "name": "X1"
+    }
+  ],
+  "info": {
+    "year": 2025,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}
