@@ -33,7 +33,7 @@ Diese Echtzeit-Datenübertragung wird häufig genutzt, um Blickbewegungen in int
 Quelle: https://docs.pupil-labs.com/core/software/pupil-capture/
 
 ## Funktionsweise Python-Skript zur Verarbeitung der Brillen-Daten
-[Zur Datei](skript_brille/skript_brille.py)
+[Zur Datei](skript_brille/skript_brille.py)  
 ### Vorbereitung
 Zu Beginn habe ich kleinere Experimente mit der Brille durchgeführt, um die Funktionsweise zu testen. Nachdem das erfolgt ist, habe ich nach Methoden gesucht wie man die ausgelesenen Daten, vor allem den Gaze Punkt, von der Brille in das Python Skript übertragen kann. 
 Der Gaze Punkt ist der Blickpunkt der Person, das heißt dadurch kann man darauf schließen wohin der Nutzer gerade schaut und welches Objekt betrachtet wird.  
@@ -70,7 +70,8 @@ Als Zwischenschritt und zur Überprüfung wurde ein Codeteil eingebaut mit dem m
 Anschließend wird überprüft, ob sich das aktuelle Objekt vom vorherigen Unterscheidet. Bei einer Unterscheidung wird das neue Objekt über MQTT publiziert. Diese Daten können dann wiederum von der Webseite eingelesen werden. Für die MQTT Verbindung wurde zu Beginn ein MQTT-Client definiert, der sich mit dem entsprechenden Broker verbindet und die Nachrichten auf ein fest definiertes Topic published. Zwischen den einzelnen Schleifenwiederholungen ist eine Pause von 10ms eingebaut und es ist eine Fehlerbehandlung integriert.
 
 ### Separate Effizientere Version
-[Zur Datei](skript_brille/skript_brille_optimized.py)
+[Zur Datei](skript_brille/skript_brille_optimized.py)  
+
 Die hier beschriebene Version, welche zur Bilderkennung immer den ganzen übermittelten Frame benutzt stellte sich als sehr rechenintensiv heraus, deswegen wurde ein optimiertes Skript für die Brille implementiert, dieses verarbeitet ausschließlich einen Ausschnitt um den Gaze-Punkt und nutzt diesen zur Objekterkennung. Die Implementierung erfolgte nach Rückgabe der Brille, deswegen konnten wir ihn leider nicht mehr testen.
 
 
