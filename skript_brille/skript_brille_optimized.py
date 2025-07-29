@@ -1,153 +1,198 @@
-import zmq
-import msgpack
-import cv2
-import numpy as np
-import threading
-from ultralytics import YOLO
-import paho.mqtt.client as mqtt
-import subprocess
+# skript_brille.py
 
-# Pupil capture automatisch starten
-subprocess.Popen(["C:/Program Files (x86)/Pupil-Labs/Pupil v3.5.1/Pupil Capture v3.5.1/pupil_capture.exe"])
-#MQTT Setup
-mqtt_broker = "localhost"
-mqtt_port = 1883
-mqtt_topic = "eye_tracking/detected_object"
+def start():
+    import zmq
+    import msgpack
+    import cv2
+    import numpy as np
+    import threading
+    from ultralytics import YOLO
+    import paho.mqtt.client as mqtt
+    import time
+    import subprocess
 
-mqtt_client = mqtt.Client()
-mqtt_client.connect(mqtt_broker, mqtt_port)
-mqtt_client.publish(mqtt_topic, "Connection works!")
+    print('success')
+    #subprocess.Popen(["C:/Program Files (x86)/Pupil-Labs/Pupil v3.5.1/Pupil Capture v3.5.1/pupil_capture.exe"])
+    #time.sleep(5)
 
-# YOLO Modell laden
-#model = YOLO("yolov8n.pt")
-model = YOLO("C:/Users/lenaw/iiprojekteyetracking/objectdetection_nano.pt")
-print(model.names)
+    mqtt_broker = "localhost"
+    mqtt_port = 1883
+    mqtt_topic = "eye_tracking/detected_object"
 
-# ZMQ Setup
-ctx = zmq.Context()
-ip = 'localhost'
-port = 50020
+    mqtt_client = mqtt.Client()
+    mqtt_client.connect(mqtt_broker, mqtt_port)
+    mqtt_client.publish(mqtt_topic, "Connection works!")
 
-# 1. Request SUB_PORT
-req_socket = ctx.socket(zmq.REQ)
-req_socket.connect(f'tcp://{ip}:{port}')
-req_socket.send_string('SUB_PORT')
-sub_port = req_socket.recv_string()
+    model = YOLO("C:/Users/lenaw/iiprojekteyetracking/objectdetection_nano.pt")
+    print("Model device:", model.device)
+    print(model.names)
 
-# Activate plugins
-req_socket.send_string('R pupil.0')
-req_socket.recv_string()
+    ctx = zmq.Context()
+    ip = 'localhost'
+    port = 50020
 
-req_socket.send_string('start_plugin gaze')
-req_socket.recv_string()
+    req_socket = ctx.socket(zmq.REQ)
+    req_socket.connect(f'tcp://{ip}:{port}')
+    req_socket.send_string('SUB_PORT')
+    sub_port = req_socket.recv_string()
 
-req_socket.send_string('start_plugin gaze_streaming')
-print("Gaze Stream aktiviert:", req_socket.recv_string())
+   # req_socket.send_string('R pupil.0')
+    #req_socket.recv_string()
 
-# Setup ZMQ sockets
-gaze_socket = ctx.socket(zmq.SUB)
-gaze_socket.connect(f'tcp://{ip}:{sub_port}')
-gaze_socket.setsockopt_string(zmq.SUBSCRIBE, 'gaze')
+   # req_socket.send_string('R pupil.1')
+    #req_socket.recv_string()
+    #req_socket.send_string('start_plugin pupil')
+    #print("Start pupil plugin:", req_socket.recv_string())
 
-frame_socket = ctx.socket(zmq.SUB)
-frame_socket.connect(f'tcp://{ip}:{sub_port}')
-frame_socket.setsockopt_string(zmq.SUBSCRIBE, 'frame.world')
+    req_socket.send_string('start_plugin gaze')
+    req_socket.recv_string()
 
-# Shared gaze data
-latest_gaze = None
-gaze_lock = threading.Lock()
+    req_socket.send_string('start_plugin gaze_streaming')
+    print("Gaze Stream aktiviert:", req_socket.recv_string())
 
-# Gaze listener thread
-def gaze_listener():
-    global latest_gaze
+    gaze_socket = ctx.socket(zmq.SUB)
+    gaze_socket.connect(f'tcp://{ip}:{sub_port}')
+    gaze_socket.setsockopt_string(zmq.SUBSCRIBE, 'gaze')
+
+    frame_socket = ctx.socket(zmq.SUB)
+    frame_socket.connect(f'tcp://{ip}:{sub_port}')
+    frame_socket.setsockopt_string(zmq.SUBSCRIBE, 'frame.world')
+
+    latest_gaze = None
+    gaze_lock = threading.Lock()
+
+    latest_frame = None
+    frame_lock = threading.Lock()
+
+    latest_boxes = []
+    boxes_lock = threading.Lock()
+
+    last_sent_cls = None
+
+    def gaze_listener():
+        nonlocal latest_gaze
+        while True:
+            try:
+                topic, payload = gaze_socket.recv_multipart()
+                gaze_data = msgpack.loads(payload, raw=False)
+                norm_pos = gaze_data.get('norm_pos')
+                if norm_pos:
+                    with gaze_lock:
+                        latest_gaze = norm_pos
+            except Exception as e:
+                print("Fehler beim Empfangen von Gaze:", e)
+
+    def frame_listener():
+        nonlocal latest_frame
+        while True:
+            try:
+                parts = frame_socket.recv_multipart()
+                if len(parts) != 3:
+                    continue
+                topic, msgpack_payload, jpeg_buffer = parts
+                img_data = np.frombuffer(jpeg_buffer, dtype=np.uint8)
+                frame = cv2.imdecode(img_data, 1)
+                if frame is None or frame.size == 0:
+                    print("Warnung: Ungültiger Frame empfangen – übersprungen.")
+                    continue
+
+                if frame is not None:
+                    with frame_lock:
+                        latest_frame = frame
+            except Exception as e:
+                print("Fehler beim Empfangen von Frame:", e)
+
+    def yolo_detector():
+        nonlocal latest_boxes
+        while True:
+            frame = None
+            with frame_lock:
+                if latest_frame is not None:
+                    frame = latest_frame.copy()
+
+            if frame is not None:
+                try:
+                    results = model(frame, imgsz=320)
+                    boxes = []
+                    for result in results:
+                        for obj in result.boxes:
+                            x1, y1, x2, y2 = map(int, obj.xyxy[0])
+                            cls = model.names[int(obj.cls[0])]
+                            boxes.append((x1, y1, x2, y2, cls))
+
+                    with boxes_lock:
+                        latest_boxes = boxes
+                except Exception as e:
+                    print("Fehler bei YOLO-Erkennung:", e)
+
+            time.sleep(0.05)
+
+    threading.Thread(target=gaze_listener, daemon=True).start()
+    threading.Thread(target=frame_listener, daemon=True).start()
+    threading.Thread(target=yolo_detector, daemon=True).start()
+
+    print("Threads gestartet. Warte auf Daten...")
+
     while True:
         try:
-            topic, payload = gaze_socket.recv_multipart()
-            gaze_data = msgpack.loads(payload, raw=False)
-            norm_pos = gaze_data.get('norm_pos')
-            if norm_pos:
-                with gaze_lock:
-                    latest_gaze = norm_pos
-        except Exception as e:
-            print("Fehler beim Empfangen von Gaze:", e)
+            with gaze_lock:
+                gaze = latest_gaze
 
-threading.Thread(target=gaze_listener, daemon=True).start()
+            with boxes_lock:
+                boxes = latest_boxes.copy()
 
-# Main frame loop
-while True:
-    try:
-        parts = frame_socket.recv_multipart()
-        if len(parts) != 3:
-            continue
-        topic, msgpack_payload, jpeg_buffer = parts
-        img_data = np.frombuffer(jpeg_buffer, dtype=np.uint8)
-        frame = cv2.imdecode(img_data, 1)
+            with frame_lock:
+                frame = latest_frame.copy() if latest_frame is not None else None
 
-        with gaze_lock:
-            gaze = latest_gaze
+            if frame is not None and gaze:
+                h, w = frame.shape[:2]
+                gaze_x = int(gaze[0] * w)
+                gaze_y = int((1 - gaze[1]) * h)
+                gaze_point = (gaze_x, gaze_y)
 
-        if frame is not None and gaze:
-            h, w = frame.shape[:2]
-            gaze_x = int(gaze[0] * w)
-            gaze_y = int((1 - gaze[1]) * h)
-            gaze_point = (gaze_x, gaze_y)
+                # Nur den Bereich um den gaze-Punkt an das Objekterkennungsmodell weitergeben
+                crop_size = 300  # kleinerer Wert = weniger Rechenaufwand, aber evtl. weniger Objekterkennung
+                crop_x1 = max(gaze_x - crop_size, 0)
+                crop_y1 = max(gaze_y - crop_size, 0)
+                crop_w = min(gaze_x + crop_size, w) - crop_x1
+                crop_h = min(gaze_y + crop_size, h) - crop_y1
 
-            # Nur den Bereich um den gaze-Punkt an das Objekterkennungsmodell weitergeben
-            # parameter kann bearbeitet werden. Niedrigerer Wert führt zu geringerem Rechenaufwand, kann bei kleinem Abstand zu den Objekten dazu führen, dass Objekt nicht erkannt wird.
-            crop_size = 300
-            # sichergehen, dass der crop nicht über die bildgrenzen hinausgehen (x1/y1)=oberes linkes eck 
-            # x1 bzw y1 darf nicht kleiner als 0 sein und width bzw height nicht über bildgrenzen hinausgehen
-            crop_x1 = max(gaze_x-crop_size, 0)
-            crop_y1 = max(gaze_y-crop_size, 0)
-            crop_w = min(gaze_x+crop_size, w)-crop_x1
-            crop_h = min(gaze_x+crop_size, h)-crop_y1
-
-            frame_crop = frame[crop_y1 : crop_y1+crop_h, crop_x1 : crop_x1+crop_h]
-
-            # YOLO Objekterkennung
-            results = model(frame_crop)
-            highlighted_object = None
-
-            for result in results:
-                for obj in result.boxes:
-                    x1, y1, x2, y2 = map(int, obj.xyxy[0])
-                    cls = model.names[int(obj.cls[0])]
-
-                    # objekt-koordinaten zurückrechnen auf gesamtbild
-                    x1-=crop_x1
-                    y1-=crop_y1
-                    x2-=crop_x1
-                    y2-=crop_y1
-
-                    # Prüfen, ob Gaze im Objekt liegt
-                    if x1 <= gaze_x <= x2 and y1 <= gaze_y <= y2:
-                        highlighted_object = (x1, y1, x2, y2, cls)
-                        print(f"Gaze befindet sich auf Objekt: {cls}")
-                        #break  # Nur das erste passende Objekt markieren
-
-                        mqtt_client.publish(mqtt_topic, f'"{cls}"')
-                    break
-
+                frame_crop = frame[crop_y1:crop_y1+crop_h, crop_x1:crop_x1+crop_w]
+                
+                highlighted_object = None
+                try:
+                    results = model(frame_crop)
+                    for result in results:
+                        for obj in result.boxes:
+                            x1, y1, x2, y2 = map(int, obj.xyxy[0])
+                            # Koordinaten auf das Originalbild verschieben
+                            x1 += crop_x1
+                            y1 += crop_y1
+                            x2 += crop_x1
+                            y2 += crop_y1
+                            cls = model.names[int(obj.cls[0])]
+                            if x1 <= gaze_x <= x2 and y1 <= gaze_y <= y2:
+                                highlighted_object = (x1, y1, x2, y2, cls)
+                                break
+                except Exception as e:
+                    print("Fehler bei YOLO-Erkennung im Crop:", e)
+                
                 if highlighted_object:
-                    break
+                    x1, y1, x2, y2, cls = highlighted_object
+                    if cls != last_sent_cls:
+                        mqtt_client.publish(mqtt_topic, f'"{cls}"')
+                        last_sent_cls = cls
 
-            # Objekt hervorheben
-            if highlighted_object:
-                x1, y1, x2, y2, cls = highlighted_object
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                cv2.putText(frame, cls, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-            # Gaze-Punkt anzeigen
-            cv2.circle(frame, gaze_point, 8, (255, 0, 0), -1)
-            cv2.putText(frame, f"Gaze: ({gaze[0]:.2f}, {gaze[1]:.2f})", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                print(f"Gaze Punkt: ({gaze_x}, {gaze_y}), Bildgröße: ({w}, {h}), Gefundenes Objekt: {highlighted_object[4] if highlighted_object else 'Keines'}")
+            else:
+                print("Warte auf Frame oder Gaze Daten...")
 
-        cv2.imshow("Gaze-basierte Objekterkennung", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            time.sleep(0.01)
 
-    except Exception as e:
-        print("Fehler beim Verarbeiten des Frames:", e)
-        continue
+        except Exception as e:
+            print("Fehler im Hauptloop:", e)
 
-cv2.destroyAllWindows()
+# NICHT automatisch starten
+# if __name__ == "__main__":
+#     start()
