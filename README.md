@@ -76,7 +76,11 @@ Die hier beschriebene Version, welche zur Bilderkennung immer den ganzen übermi
 
 
 
-# Übertragung (Beispielüberschrift)
+# Übertragung zwischen Brille und Webseite
+
+Zur Übertragung wird das MQTT Protokoll genutzt. Dafür wird in dem Startskript ein Eclipse MQTT Broker erstellt, der die Nachrichten zwischen dem Skript für die Brille und der Webseite übermittelt. Außerdem wurde hierfür noch ein neues Topic angelegt: "eye_tracking/detected_object".  
+
+MQTT (Message Queuing Telemetry Transport) wird in diesem Projekt verwendet, um eine leichte, effiziente und echtzeitfähige Kommunikation zwischen dem Eye-Tracking-System und der Webanwendung herzustellen. Das Eye-Tracking-Skript erkennt und klassifiziert die Objekte, auf die der Nutzer blickt, und sendet diese Information über einen MQTT-Broker an die Webseite. MQTT eignet sich besonders gut, weil es ein leichtgewichtiges Protokoll ist und daher auch bei geringer Bandbreite zuverlässig funktioniert. Außerdem wird dadurch eine asynchrone Nachrichtenübertragung ermöglicht mittels Publish7Subscribe und es lässt sich sehr einfach in viele Systeme integrieren. Dadurch kann z. B. die Webseite immer aktuell anzeigen, welches Objekt gerade angesehen wird, ohne dass eine direkte Verbindung oder permanente Abfrage notwendig ist.  
 
 # Webseite (Beispielüberschrift)
 
